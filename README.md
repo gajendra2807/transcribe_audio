@@ -55,19 +55,25 @@ Example usage with curl:
 curl -X POST -F "file=@your-audio-file.mp3" http://127.0.0.1:8000/transcribe
 ```
 
-## Deployment
-
-This application is configured for deployment on Render. The `render.yaml` file contains the necessary configuration.
+## Deployment on Render
 
 1. Push your code to GitHub
 2. Create a new Web Service on Render
 3. Connect your GitHub repository
-4. Add your `OPENAI_API_KEY` to the environment variables
+4. Configure the environment variable:
+   - Add `OPENAI_API_KEY` in the Render dashboard under "Environment Variables"
+   - Go to Environment -> Environment Variables -> Add Environment Variable
+   - Key: `OPENAI_API_KEY`
+   - Value: Your OpenAI API key
 5. Deploy!
+
+The application will automatically use the API key from Render's environment variables when deployed.
 
 ## Environment Variables
 
-- `OPENAI_API_KEY`: Your OpenAI API key (set in Render dashboard)
+- `OPENAI_API_KEY`: Your OpenAI API key (required)
+  - In development: Set in `.env` file
+  - In production: Set in Render dashboard
 - `PORT`: Port number (default: 8000)
 
 ## License
