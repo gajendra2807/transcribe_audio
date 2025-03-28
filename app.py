@@ -7,6 +7,7 @@ from flask_cors import CORS
 from openai import OpenAI
 from datetime import datetime
 from werkzeug.utils import secure_filename
+from dotenv import load_dotenv
 
 # -----------------------------------
 # 1) Basic Logging Setup
@@ -19,16 +20,26 @@ logger = logging.getLogger(__name__)
 
 # -----------------------------------
 # 2) Load OpenAI API Key from ENV
-#    (Set OPENAI_API_KEY in your environment)
 # -----------------------------------
-api_key = os.getenv('OPENAI_API_KEY')
-if not api_key:
-    raise ValueError("No OPENAI_API_KEY found in environment variables.")
+logger.info("Loading environment variables...")
+load_dotenv(override=True)  # Force reload of environment variables
+
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+if not OPENAI_API_KEY:
+    logger.error("No OPENAI_API_KEY found in environment variables")
+    raise ValueError("No OPENAI_API_KEY found in environment variables")
+
+logger.info(f"API Key found: {OPENAI_API_KEY[:8]}...")
 
 # -----------------------------------
 # 3) Initialize OpenAI Client
 # -----------------------------------
-client = OpenAI(api_key=api_key)
+try:
+    client = OpenAI(api_key=OPENAI_API_KEY)
+    logger.info("OpenAI client initialized successfully")
+except Exception as e:
+    logger.error(f"Error initializing OpenAI client: {e}")
+    raise
 
 # -----------------------------------
 # 4) Flask Setup
@@ -36,18 +47,12 @@ client = OpenAI(api_key=api_key)
 app = Flask(__name__)
 CORS(app)
 
-# Allowed file extensions (change as needed)
+# Allowed file extensions
 ALLOWED_EXTENSIONS = {'mp3', 'wav', 'm4a', 'ogg'}
 
-# -----------------------------------
-# Helper: Check File Extension
-# -----------------------------------
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# -----------------------------------
-# Helper: Transcribe Audio with OpenAI
-# -----------------------------------
 def transcribe_audio(filepath):
     """
     Transcribe an audio file using OpenAI's Whisper API
@@ -55,11 +60,19 @@ def transcribe_audio(filepath):
     logger.info(f"Starting transcription for file: {filepath}")
     try:
         start_time = datetime.now()
-
+        
+        # Debug: Print current API key (first 8 chars)
+        current_key = OPENAI_API_KEY
+        logger.info(f"Current API key: {current_key[:8] if current_key else 'None'}")
+        logger.info(f"Client API key: {client.api_key[:8] if client.api_key else 'None'}")
+        
         # Read the audio file in binary mode
         with open(filepath, 'rb') as audio_file:
             logger.info("Sending request to OpenAI Whisper API...")
-            transcript = client.audio.transcriptions.create(
+            
+            # Create a new client instance for this request
+            temp_client = OpenAI(api_key=current_key)
+            transcript = temp_client.audio.transcriptions.create(
                 model="whisper-1",
                 file=audio_file
             )
@@ -72,9 +85,6 @@ def transcribe_audio(filepath):
         logger.error(f"Error in transcription: {e}", exc_info=True)
         return f"Error: {str(e)}"
 
-# -----------------------------------
-# 5) The Single POST Endpoint: /transcribe
-# -----------------------------------
 @app.route('/transcribe', methods=['POST'])
 def transcribe():
     """
@@ -138,18 +148,13 @@ def transcribe():
         logger.error(f"Unexpected error: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
-# -----------------------------------
-# 6) (Optional) Root endpoint to confirm it's running
-# -----------------------------------
 @app.route('/', methods=['GET'])
 def index():
-    return jsonify({"message": "Hello from the transcribe server!"})
+    return jsonify({
+        "message": "Hello from the transcribe server!",
+        "api_key_status": "Configured" if OPENAI_API_KEY else "Missing"
+    })
 
-# -----------------------------------
-# 7) Local Development Entry Point
-# -----------------------------------
 if __name__ == '__main__':
-    # For local testing only:
-    #   python app.py
-    # Then open http://127.0.0.1:5000/
+    logger.info("Starting Flask application...")
     app.run(debug=True, port=5000)
