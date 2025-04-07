@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 logger.info("Loading environment variables...")
 load_dotenv(override=True)  # Force reload of environment variables
 
-OPENAI_API_KEY = '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'
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 if not OPENAI_API_KEY:
     logger.error("No OPENAI_API_KEY found in environment variables")
     raise ValueError("No OPENAI_API_KEY found in environment variables")
