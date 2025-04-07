@@ -3,12 +3,15 @@ import base64
 import re
 import tempfile
 import logging
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from openai import OpenAI
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
+
+# SpeechRecognition library
+import speech_recognition as sr
 
 # -----------------------------------
 # 1) Basic Logging Setup
@@ -20,30 +23,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # -----------------------------------
-# 2) Load OpenAI API Key from ENV
+# 2) Load environment variables (if needed)
 # -----------------------------------
 logger.info("Loading environment variables...")
-load_dotenv(override=True)  # Force reload of environment variables
+load_dotenv(override=True)
 
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-if not OPENAI_API_KEY:
-    logger.error("No OPENAI_API_KEY found in environment variables")
-    raise ValueError("No OPENAI_API_KEY found in environment variables")
+# If you had any custom environment variables, they would be loaded here.
+# For example:
+# CUSTOM_VAR = os.getenv("CUSTOM_VAR", "default_value")
 
-logger.info(f"API Key found: {OPENAI_API_KEY[:8]}...")
-
-# -----------------------------------
-# 3) Initialize OpenAI Client
-# -----------------------------------
-try:
-    client = OpenAI(api_key=OPENAI_API_KEY)
-    logger.info("OpenAI client initialized successfully")
-except Exception as e:
-    logger.error(f"Error initializing OpenAI client: {e}")
-    raise
+logger.info("Environment variables loaded.")
 
 # -----------------------------------
-# 4) Flask Setup
+# 3) Flask Setup
 # -----------------------------------
 app = Flask(__name__)
 CORS(app)
@@ -69,38 +61,37 @@ def guess_extension_from_data_url(data_url, default_ext="mp3"):
     pattern = r"^data:audio/([^;]+);base64"
     match = re.match(pattern, data_url)
     if match:
-        # match.group(1) will be e.g. "m4a", "mp3", "wav", etc.
         return match.group(1).lower()
     return default_ext
 
 def transcribe_audio(filepath):
     """
-    Transcribe an audio file using OpenAI's Whisper API
+    Transcribe an audio file using SpeechRecognition's default (Google) API.
+    If you want offline transcription, install pocketsphinx and
+    replace recognize_google with recognize_sphinx.
     """
     logger.info(f"Starting transcription for file: {filepath}")
+    start_time = datetime.now()
+
+    r = sr.Recognizer()
+
+    # Open the file
+    with sr.AudioFile(filepath) as source:
+        audio_data = r.record(source)
+
     try:
-        start_time = datetime.now()
-
-        # Debug: Print current API key (first 8 chars)
-        current_key = OPENAI_API_KEY
-        logger.info(f"Current API key: {current_key[:8] if current_key else 'None'}")
-        logger.info(f"Client API key: {client.api_key[:8] if client.api_key else 'None'}")
-
-        # Read the audio file in binary mode
-        with open(filepath, 'rb') as audio_file:
-            logger.info("Sending request to OpenAI Whisper API...")
-
-            # Create a new client instance for this request
-            temp_client = OpenAI(api_key=current_key)
-            transcript = temp_client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file
-            )
-
+        # Online (Google Web Speech API) — requires internet connection
+        text = r.recognize_google(audio_data)
         duration = (datetime.now() - start_time).total_seconds()
-        logger.info(f"Transcription completed in {duration:.2f} seconds")
-        return transcript.text
+        logger.info(f"Transcription completed in {duration:.2f} seconds.")
+        return text
 
+    except sr.UnknownValueError:
+        logger.error("SpeechRecognition could not understand the audio.")
+        return "Error: Could not understand audio"
+    except sr.RequestError as e:
+        logger.error(f"Could not request results from Google Speech Recognition service; {e}")
+        return f"Error: Request to Google failed: {str(e)}"
     except Exception as e:
         logger.error(f"Error in transcription: {e}", exc_info=True)
         return f"Error: {str(e)}"
@@ -140,7 +131,7 @@ def transcribe():
         data = request.get_json()
         if data and 'audio' in data:
             base64_data_url = data['audio']
-            # Optional: Check for 'data:audio/...' prefix
+            # Optional: check for 'data:audio/...' prefix
             if not base64_data_url.startswith("data:audio/"):
                 logger.warning("Data URL does not start with data:audio/")
                 # We'll still attempt to decode it, but it may not be valid
@@ -158,7 +149,6 @@ def transcribe():
                 return jsonify({"error": "Invalid base64 audio data"}), 400
 
             # Guess the correct extension from the data URL
-            # iOS typically produces "audio/m4a", Android might be "audio/mp3", etc.
             extension = guess_extension_from_data_url(base64_data_url, default_ext="mp3")
             
             # Validate we only use allowed extensions
@@ -166,7 +156,7 @@ def transcribe():
                 logger.warning(f"Guessed extension '{extension}' is not in {ALLOWED_EXTENSIONS}, defaulting to mp3.")
                 extension = "mp3"
 
-            # Write to a temporary file with the chosen extension
+            # Write to a temporary file
             with tempfile.NamedTemporaryFile(suffix=f".{extension}", delete=False) as tmp:
                 tmp.write(audio_binary)
                 temp_path = tmp.name
@@ -188,8 +178,7 @@ def transcribe():
 @app.route('/', methods=['GET'])
 def index():
     return jsonify({
-        "message": "Hello from the transcribe server!",
-        "api_key_status": "Configured" if OPENAI_API_KEY else "Missing"
+        "message": "Hello from the transcribe server (SpeechRecognition version)!",
     })
 
 if __name__ == '__main__':
